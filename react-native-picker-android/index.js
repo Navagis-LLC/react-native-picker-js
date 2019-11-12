@@ -431,7 +431,7 @@ export default class PickerAny extends Component {
 						width: this.state.style.width || width,
 						...Platform.select({
 							android: {
-								height: this.state.style.height - (this.state.style.height * 0.2),
+								height: this.state.style.height - (this.state.style.height * 0.07),
 							}
 						})
 					}]}>
