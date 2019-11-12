@@ -427,7 +427,14 @@ export default class PickerAny extends Component {
 								onPress={this._pickerFinish.bind(this)}>{this.state.pickerBtnText}</Text>
 						</View>
 					</View>
-					<View style={[styles.pickerWrap, {width: this.state.style.width || width}]}>
+					<View style={[styles.pickerWrap, {
+						width: this.state.style.width || width,
+						...Platform.select({
+							android: {
+								height: this.state.style.height - (this.state.style.height * 0.07),
+							}
+						})
+					}]}>
 						{this._renderWheel(this.state.pickerData)}
 					</View>
 				</View>

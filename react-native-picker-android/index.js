@@ -1,515 +1,370 @@
-import React, {Component} from 'react';
-import PropTypes from 'prop-types';
+import React, { Component } from "react";
+import PropTypes from "prop-types";
 import {
-	StyleSheet,
-	View,
-	ViewPropTypes,
-	Text,
-	Animated,
-	Platform,
-	Dimensions,
-	PickerIOS
-} from 'react-native';
+  StyleSheet,
+  View,
+  ViewPropTypes,
+  Text,
+  Image,
+  Dimensions,
+  PixelRatio,
+  PanResponder
+} from "react-native";
 
-import PickerAndroid from './react-native-picker-android';
+class PickerAndroidItem extends Component {
+  static propTypes = {
+    value: PropTypes.any,
+    label: PropTypes.any
+  };
 
-let Picker = Platform.OS === 'ios' ? PickerIOS : PickerAndroid;
-let PickerItem = Picker.Item;
-let {width, height} = Dimensions.get('window');
+  constructor(props, context) {
+    super(props, context);
+  }
 
-const longSide = width > height ? width : height;
-const shortSide = width > height ? height : width;
+  render() {
+    return null;
+  }
+}
 
-export default class PickerAny extends Component {
+export default class PickerAndroid extends Component {
+  static Item = PickerAndroidItem;
 
-	static propTypes = {
-		style: ViewPropTypes.style,
-		pickerElevation: PropTypes.number,
-		pickerBtnText: PropTypes.string,
-		pickerCancelBtnText: PropTypes.string,
-		pickerBtnStyle: Text.propTypes.style,
-		pickerTitle: PropTypes.string,
-		pickerTitleStyle: Text.propTypes.style,
-		pickerToolBarStyle: ViewPropTypes.style,
-		showMask: PropTypes.bool,
-		showDuration: PropTypes.number,
-		pickerData: PropTypes.any.isRequired,
-		selectedValue: PropTypes.any.isRequired,
-		onPickerDone: PropTypes.func,
-		onPickerCancel: PropTypes.func,
-		onValueChange: PropTypes.func
-	};
+  static propTypes = {
+    //picker's style
+    pickerStyle: ViewPropTypes.style,
+    //picker item's style
+    itemStyle: Text.propTypes.style,
+    //picked value changed then call this function
+    onValueChange: PropTypes.func,
+    //default to be selected value
+    selectedValue: PropTypes.any
+  };
 
-	static defaultProps = {
-		style: {
-			width: width
-		},
-		pickerBtnText: 'Done',
-		pickerCancelBtnText: 'Cancel',
-		showMask: false,
-		showDuration: 300,
-		onPickerDone: ()=>{},
-		onPickerCancel: ()=>{},
-		onValueChange: ()=>{}
-	};
+  constructor(props, context) {
+    super(props, context);
+    this.state = this._stateFromProps(this.props);
+  }
 
-	constructor(props, context){
-		super(props, context);
-		this.state = this._getStateFromProps(this.props);
-	}
+  componentWillReceiveProps(nextProps) {
+    this.setState(this._stateFromProps(nextProps));
+  }
 
-	componentWillReceiveProps(newProps){
-		let newState = this._getStateFromProps(newProps);
-		this.setState(newState);
-	}
+  shouldComponentUpdate(nextProps, nextState, context) {
+    return (
+      JSON.stringify([
+        {
+          selectedIndex: nextState.selectedIndex,
+          items: nextState.items,
+          pickerStyle: nextState.pickerStyle,
+          itemStyle: nextState.itemStyle,
+          onValueChange: nextState.onValueChange
+        },
+        context
+      ]) !==
+      JSON.stringify([
+        {
+          selectedIndex: this.state.selectedIndex,
+          items: this.state.items,
+          pickerStyle: this.state.pickerStyle,
+          itemStyle: this.state.itemStyle,
+          onValueChange: this.state.onValueChange
+        },
+        this.context
+      ])
+    );
+  }
 
-	shouldComponentUpdate(nextProps, nextState, context){
-		return true;
-	}
+  _stateFromProps(props) {
+    let selectedIndex = 0;
+    let items = [];
+    let pickerStyle = props.pickerStyle;
+    let itemStyle = props.itemStyle;
+    let onValueChange = props.onValueChange;
+    React.Children.forEach(props.children, (child, index) => {
+      child.props.value === props.selectedValue && (selectedIndex = index);
+      items.push({ value: child.props.value, label: child.props.label });
+    });
+    //fix issue#https://github.com/beefe/react-native-picker/issues/51
+    this.index = selectedIndex;
+    return {
+      selectedIndex,
+      items,
+      pickerStyle,
+      itemStyle,
+      onValueChange
+    };
+  }
 
-	_getStateFromProps(props){
-		//the pickedValue must looks like [wheelone's, wheeltwo's, ...]
-		//this.state.selectedValue may be the result of the first pickerWheel
-		let {pickerData, selectedValue} = props;
-		let pickerStyle = pickerData.constructor === Array ? 'parallel' : 'cascade';
-		let firstWheelData;
-		let firstPickedData;
-		let secondPickedData;
-		let secondWheelData;
-		let secondPickedDataIndex;
-		let thirdWheelData;
-		let thirdPickedDataIndex;
-		let cascadeData = {};
-		let slideAnim = (this.state && this.state.slideAnim ? this.state.slideAnim : new Animated.Value(-height));
+  _move(dy) {
+    let index = this.index;
+    this.middleHeight = Math.abs(-index * 40 + dy);
+    this.up &&
+      this.up.setNativeProps({
+        style: {
+          marginTop: (3 - index) * 30 + dy * 0.75
+        }
+      });
+    this.middle &&
+      this.middle.setNativeProps({
+        style: {
+          marginTop: -index * 40 + dy
+        }
+      });
+    this.down &&
+      this.down.setNativeProps({
+        style: {
+          marginTop: (-index - 1) * 30 + dy * 0.75
+        }
+      });
+  }
 
-		if(pickerStyle === 'parallel'){
-			//compatible single wheel sence
-			if(selectedValue.constructor !== Array){
-				selectedValue = [selectedValue];
-			}
-			if(pickerData[0].constructor !== Array){
-				pickerData = [pickerData];
-			}
-		}
-		else if(pickerStyle === 'cascade'){
-			//only support three stage
-			firstWheelData = Object.keys(pickerData);
-			firstPickedData = props.selectedValue[0];
-			secondPickedData = props.selectedValue[1];
-			cascadeData = this._getCascadeData(pickerData, selectedValue, firstPickedData, secondPickedData, true);
-		}
-		//save picked data
-		this.pickedValue = JSON.parse(JSON.stringify(selectedValue));
-		this.pickerStyle = pickerStyle;
-		return {
-			...props,
-			pickerData,
-			selectedValue,
-			//list of first wheel data
-			firstWheelData,
-			//first wheel selected value
-			firstPickedData,
-			slideAnim,
-			//list of second wheel data and pickedDataIndex
-			secondWheelData: cascadeData.secondWheelData,
-			secondPickedDataIndex: cascadeData.secondPickedDataIndex,
-			//third wheel selected value and pickedDataIndex
-			thirdWheelData: cascadeData.thirdWheelData,
-			thirdPickedDataIndex: cascadeData.thirdPickedDataIndex
-		};
-	}
+  _moveTo(index) {
+    let _index = this.index;
+    let diff = _index - index;
+    let marginValue;
+    let that = this;
+    if (diff && !this.isMoving) {
+      marginValue = diff * 40;
+      this._move(marginValue);
+      this.index = index;
+      this._onValueChange();
+    }
+  }
+  //cascade mode will reset the wheel position
+  moveTo(index) {
+    this._moveTo(index);
+  }
 
-	_slideUp(){
-		this._isMoving = true;
-		Animated.timing(
-			this.state.slideAnim,
-			{
-				toValue: 0,
-				duration: this.state.showDuration,
-			}
-		).start((evt) => {
-			if(evt.finished) {
-				this._isMoving = false;
-				this._isPickerShow = true;
-			}
-		});
-	}
+  moveUp() {
+    this._moveTo(Math.max(this.state.items.index - 1, 0));
+  }
 
-	_slideDown(){
-		this._isMoving = true;
-		Animated.timing(
-			this.state.slideAnim,
-			{
-				toValue: -height,
-				duration: this.state.showDuration,
-			}
-		).start((evt) => {
-			if(evt.finished) {
-				this._isMoving = false;
-				this._isPickerShow = false;
-			}
-		});
-	}
+  moveDown() {
+    this._moveTo(Math.min(this.index + 1, this.state.items.length - 1));
+  }
 
-	_toggle(){
-		if(this._isMoving) {
-			return;
-		}
-		if(this._isPickerShow) {
-			this._slideDown();
-		}
-		else{
-			this._slideUp();
-		}
-	}
-	
-	toggle(){
-		this._toggle();
-	}
-	show(){
-		if(!this._isPickerShow){
-			this._slideUp();
-		}
-	}
-	hide(){
-		if(this._isPickerShow){
-			this._slideDown();
-		}
-	}
-	isPickerShow(){
-		return this._isPickerShow;
-	}
+  _handlePanResponderMove(evt, gestureState) {
+    let dy = gestureState.dy;
+    if (this.isMoving) {
+      return;
+    }
+    // turn down
+    if (dy > 0) {
+      this._move(dy > this.index * 40 ? this.index * 40 : dy);
+    } else {
+      this._move(
+        dy < (this.index - this.state.items.length + 1) * 40
+          ? (this.index - this.state.items.length + 1) * 40
+          : dy
+      );
+    }
+  }
 
-	_prePressHandle(callback){
-		this.pickerWheel.moveUp();
-	}
+  _handlePanResponderRelease(evt, gestureState) {
+    let middleHeight = this.middleHeight;
+    this.index =
+      middleHeight % 40 >= 20
+        ? Math.ceil(middleHeight / 40)
+        : Math.floor(middleHeight / 40);
+    this._move(0);
+    this._onValueChange();
+  }
 
-	_nextPressHandle(callback){
-		this.pickerWheel.moveDown();
-	}
+  componentWillMount() {
+    this._panResponder = PanResponder.create({
+      onMoveShouldSetPanResponder: (evt, gestureState) => true,
+      onMoveShouldSetPanResponderCapture: (evt, gestureState) => true,
+      onPanResponderRelease: this._handlePanResponderRelease.bind(this),
+      onPanResponderMove: this._handlePanResponderMove.bind(this)
+    });
+    this.isMoving = false;
+    this.index = this.state.selectedIndex;
+  }
 
-	_pickerCancel(){
-		this._toggle();
-		this.state.onPickerCancel();
-	}
+  componentWillUnmount() {
+    this.timer && clearInterval(this.timer);
+  }
 
-	_pickerFinish(){
-		this._toggle();
-		this.state.onPickerDone(this.pickedValue);
-	}
+  _renderItems(items) {
+    //value was used to watch the change of picker
+    //label was used to display
+    let upItems = [],
+      middleItems = [],
+      downItems = [];
+    items.forEach((item, index) => {
+      upItems[index] = (
+        <Text
+          key={"up" + index}
+          style={[styles.upText, this.state.itemStyle]}
+          onPress={() => {
+            this._moveTo(index);
+          }}
+        >
+          {item.label}
+        </Text>
+      );
 
-	_renderParallelWheel(pickerData){
-		return pickerData.map((item, index) => {
-			return (
-				<View style={styles.pickerWheel} key={index}>
-					<Picker
-						selectedValue={this.state.selectedValue[index]}
-						onValueChange={value => {
-							this.pickedValue.splice(index, 1, value);
-							//do not set state to another object!! why?
-							// this.setState({
-							// 	selectedValue: this.pickedValue
-							// });
-							this.setState({
-								selectedValue: JSON.parse(JSON.stringify(this.pickedValue))
-							});
-							this.state.onValueChange(JSON.parse(JSON.stringify(this.pickedValue)), index);
-						}} >
-						{item.map((value, index) => (
-							<PickerItem
-								key={index}
-								value={value}
-								label={value.toString()}
-							/>)
-						)}
-					</Picker>
-				</View>
-			);
-		});
-	}
+      middleItems[index] = (
+        <Text
+          key={"mid" + index}
+          style={[styles.middleText, this.state.itemStyle]}
+        >
+          {item.label}
+        </Text>
+      );
 
-	_getCascadeData(pickerData, pickedValue, firstPickedData, secondPickedData, onInit){
-		let secondWheelData;
-		let secondPickedDataIndex;
-		let thirdWheelData;
-		let thirdPickedDataIndex;
-		//only support two and three stage
-		for(let key in pickerData){
-			//two stage
-			if(pickerData[key].constructor === Array){
-				secondWheelData = pickerData[firstPickedData];
-				if(onInit){
-					secondWheelData.forEach(function(v, k){
-						if(v === pickedValue[1]){
-							secondPickedDataIndex = k;
-						}
-					}.bind(this));
-				}
-				else{
-					secondPickedDataIndex = 0;
-				}
-				break;
-			}
-			//three stage
-			else{
-				secondWheelData = Object.keys(pickerData[firstPickedData]);
-				if(onInit){
-					secondWheelData.forEach(function(v, k){
-						if(v === pickedValue[1]){
-							secondPickedDataIndex = k;
-						}
-					}.bind(this));
-				}
-				else{
-					secondPickedDataIndex = 0;
-				}
-				thirdWheelData = pickerData[firstPickedData][secondPickedData];
-				if(onInit){
-					thirdWheelData.forEach(function(v, k){
-						if(v === pickedValue[2]){
-							thirdPickedDataIndex = k;
-						}
-					})
-				}
-				else{
-					thirdPickedDataIndex = 0;
-				}
-				break;
-			}
-		}
+      downItems[index] = (
+        <Text
+          key={"down" + index}
+          style={[styles.downText, this.state.itemStyle]}
+          onPress={() => {
+            this._moveTo(index);
+          }}
+        >
+          {item.label}
+        </Text>
+      );
+    });
+    return { upItems, middleItems, downItems };
+  }
 
-		return {
-			secondWheelData,
-			secondPickedDataIndex,
-			thirdWheelData,
-			thirdPickedDataIndex
-		}
-	}
+  _onValueChange() {
+    //the current picked label was more expected to be passed,
+    //but PickerIOS only passed value, so we set label to be the second argument
+    //add by zooble @2015-12-10
+    var curItem = this.state.items[this.index];
+    this.state.onValueChange &&
+      this.state.onValueChange(curItem.value, curItem.label);
+  }
 
-	_renderCascadeWheel(pickerData){
-		let thirdWheel = this.state.thirdWheelData && (
-			<View style={styles.pickerWheel}>
-				<Picker
-					ref={'thirdWheel'}
-					selectedValue={this.state.thirdPickedDataIndex}
-					onValueChange={(index) => {
-						this.pickedValue.splice(2, 1, this.state.thirdWheelData[index]);
-						this.setState({
-							thirdPickedDataIndex: index,
-							selectedValue: 'wheel3'+index
-						});
-						this.state.onValueChange(JSON.parse(JSON.stringify(this.pickedValue)), 2);
-					}} >
-					{this.state.thirdWheelData.map((value, index) => (
-						<PickerItem
-							key={index}
-							value={index}
-							label={value.toString()}
-						/>)
-					)}
-				</Picker>
-			</View>
-		);
+  render() {
+    let index = this.state.selectedIndex;
+    let length = this.state.items.length;
+    let items = this._renderItems(this.state.items);
 
-		return (
-			<View style={[styles.pickerWrap, {width: this.state.style.width || width}]}>
-				<View style={styles.pickerWheel}>
-					<Picker
-						ref={'firstWheel'}
-						selectedValue={this.state.firstPickedData}
-						onValueChange={value => {
-							let secondWheelData = Object.keys(pickerData[value]);
-							let cascadeData = this._getCascadeData(pickerData, this.pickedValue, value, secondWheelData[0]);
-							//when onPicked, this.pickedValue will pass to the parent
-							//when firstWheel changed, second and third will also change
-							if(cascadeData.thirdWheelData){
-								this.pickedValue.splice(0, 3, value, cascadeData.secondWheelData[0], cascadeData.thirdWheelData[0]);
-							}
-							else{
-								this.pickedValue.splice(0, 2, value, cascadeData.secondWheelData[0]);
-							}
+    let upViewStyle = {
+      marginTop: (3 - index) * 30,
+      height: length * 30
+    };
+    let middleViewStyle = {
+      marginTop: -index * 40
+    };
+    let downViewStyle = {
+      marginTop: (-index - 1) * 30,
+      height: length * 30
+    };
 
-							this.setState({
-								selectedValue: 'wheel1'+value,
-								firstPickedData: value,
-								secondWheelData: cascadeData.secondWheelData,
-								secondPickedDataIndex: 0,
-								thirdWheelData: cascadeData.thirdWheelData,
-								thirdPickedDataIndex: 0
-							});
-							this.state.onValueChange(JSON.parse(JSON.stringify(this.pickedValue)), 0);
-							this.refs.secondWheel && this.refs.secondWheel.moveTo && this.refs.secondWheel.moveTo(0);
-							this.refs.thirdWheel && this.refs.thirdWheel.moveTo && this.refs.thirdWheel.moveTo(0);
-						}} >
-						{this.state.firstWheelData.map((value, index) => (
-							<PickerItem
-								key={index}
-								value={value}
-								label={value.toString()}
-							/>)
-						)}
-					</Picker>
-				</View>
-				<View style={styles.pickerWheel}>
-					<Picker
-						ref={'secondWheel'}
-						selectedValue={this.state.secondPickedDataIndex}
-						onValueChange={(index) => {
-							let thirdWheelData = pickerData[this.state.firstPickedData][this.state.secondWheelData[index]];
-							if(thirdWheelData){
-								this.pickedValue.splice(1, 2, this.state.secondWheelData[index], thirdWheelData[0]);
-							}
-							else{
-								this.pickedValue.splice(1, 1, this.state.secondWheelData[index]);
-							}
+    return (
+      //total to be 90*2+40=220 height
+      <View
+        style={[styles.container, this.state.pickerStyle]}
+        {...this._panResponder.panHandlers}
+      >
+        <View style={styles.up}>
+          <View
+            style={[styles.upView, upViewStyle]}
+            ref={up => {
+              this.up = up;
+            }}
+          >
+            {items.upItems}
+          </View>
+        </View>
 
-							this.setState({
-								secondPickedDataIndex: index,
-								thirdWheelData,
-								thirdPickedDataIndex: 0,
-								selectedValue: 'wheel2'+index
-							});
-							this.state.onValueChange(JSON.parse(JSON.stringify(this.pickedValue)), 1);
-							this.refs.thirdWheel && this.refs.thirdWheel.moveTo && this.refs.thirdWheel.moveTo(0);
-						}} >
-						{this.state.secondWheelData.map((value, index) => (
-							<PickerItem
-								key={index}
-								value={index}
-								label={value.toString()}
-							/>)
-						)}
-					</Picker>
-				</View>
-				{thirdWheel}
-			</View>
-		);
-	}
+        <View style={styles.middle}>
+          <View
+            style={[styles.middleView, middleViewStyle]}
+            ref={middle => {
+              this.middle = middle;
+            }}
+          >
+            {items.middleItems}
+          </View>
+        </View>
 
-	_renderWheel(pickerData){
-		let wheel = null;
-		if(this.pickerStyle === 'parallel'){
-			wheel = this._renderParallelWheel(pickerData);
-		}
-		else if(this.pickerStyle === 'cascade'){
-			wheel = this._renderCascadeWheel(pickerData);
-		}
-		return wheel;
-	}
+        <View style={styles.down}>
+          <View
+            style={[styles.downView, downViewStyle]}
+            ref={down => {
+              this.down = down;
+            }}
+          >
+            {items.downItems}
+          </View>
+        </View>
+      </View>
+    );
+  }
+}
 
-	render(){
-
-		let mask = this.state.showMask ? (
-			<View style={styles.mask} >
-				<Text style={{width: width, height: height}} onPress={this._pickerCancel.bind(this)}></Text>
-			</View>
-		) : null;
-
-		return (
-			<Animated.View style={[styles.picker, {
-				elevation: this.state.pickerElevation,
-				width: longSide,
-				height: this.state.showMask ? height : this.state.style.height,
-				bottom: this.state.slideAnim
-			}]}>
-				{mask}
-				<View style={[styles.pickerBox, this.state.style]}>
-					<View style={[styles.pickerToolbar, this.state.pickerToolBarStyle, {width: this.state.style.width || width}]}>
-						<View style={styles.pickerCancelBtn}>
-							<Text style={[styles.pickerFinishBtnText, this.state.pickerBtnStyle]}
-								onPress={this._pickerCancel.bind(this)}>{this.state.pickerCancelBtnText}</Text>
-						</View>
-						<Text style={[styles.pickerTitle, this.state.pickerTitleStyle]} numberOfLines={1}>
-							{this.state.pickerTitle}
-						</Text>
-						<View style={styles.pickerFinishBtn}>
-							<Text style={[styles.pickerFinishBtnText, this.state.pickerBtnStyle]}
-								onPress={this._pickerFinish.bind(this)}>{this.state.pickerBtnText}</Text>
-						</View>
-					</View>
-					<View style={[styles.pickerWrap, {
-						width: this.state.style.width || width,
-						...Platform.select({
-							android: {
-								height: this.state.style.height - (this.state.style.height * 0.07),
-							}
-						})
-					}]}>
-						{this._renderWheel(this.state.pickerData)}
-					</View>
-				</View>
-			</Animated.View>
-		);
-	}
-};
-
+let width = Dimensions.get("window").width;
+let height = Dimensions.get("window").height;
+let ratio = PixelRatio.get();
 let styles = StyleSheet.create({
-	picker: {
-		position: 'absolute',
-		bottom: 0,
-		left: 0,
-		backgroundColor: 'transparent',
-	},
-	pickerBox: {
-		position: 'absolute',
-		bottom: 0,
-		left: 0,
-		backgroundColor: '#bdc0c7'
-	},
-	mask: {
-		position: 'absolute',
-		top: 0,
-		backgroundColor: 'transparent',
-		height: height,
-		width: width
-	},
-	pickerWrap: {
-		flexDirection: 'row'
-	},
-	pickerWheel: {
-		flex: 1
-	},
-	pickerToolbar: {
-		height: 30,
-		backgroundColor: '#e6e6e6',
-		flexDirection: 'row',
-		borderTopWidth: 1,
-		borderBottomWidth: 1,
-		borderColor: '#c3c3c3',
-		alignItems: 'center'
-	},
-	pickerBtnView: {
-		flex: 1,
-		flexDirection: 'row',
-		justifyContent: 'flex-start',
-		alignItems: 'center'
-	},
-	pickerMoveBtn: {
-		color: '#149be0',
-		fontSize: 16,
-		marginLeft: 20
-	},
-	pickerCancelBtn: {
-		flex: 1,
-		flexDirection: 'row',
-		justifyContent: 'flex-start',
-		alignItems: 'center',
-		marginLeft: 20
-	},
-	pickerTitle: {
-		flex: 4,
-		color: 'black',
-		textAlign: 'center'
-	},
-	pickerFinishBtn: {
-		flex: 1,
-		flexDirection: 'row',
-		justifyContent: 'flex-end',
-		alignItems: 'center',
-		marginRight: 20
-	},
-	pickerFinishBtnText: {
-		fontSize: 16,
-		color: '#149be0'
-	}
+  container: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    //this is very important
+    backgroundColor: null
+  },
+  up: {
+    height: 90,
+    overflow: "hidden"
+  },
+  upView: {
+    justifyContent: "flex-start",
+    alignItems: "center"
+  },
+  upText: {
+    paddingTop: 0,
+    height: 30,
+    fontSize: 20,
+    color: "#000",
+    opacity: 0.5,
+    paddingBottom: 0,
+    marginTop: 0,
+    marginBottom: 0
+  },
+  middle: {
+    height: 40,
+    width: width,
+    overflow: "hidden",
+    borderColor: "#aaa",
+    borderTopWidth: 1 / ratio,
+    borderBottomWidth: 1 / ratio
+  },
+  middleView: {
+    height: 40,
+    justifyContent: "flex-start",
+    alignItems: "center"
+  },
+  middleText: {
+    paddingTop: 0,
+    height: 40,
+    color: "#000",
+    fontSize: 28,
+    paddingBottom: 0,
+    marginTop: 0,
+    marginBottom: 0
+  },
+  down: {
+    height: 90,
+    overflow: "hidden"
+  },
+  downView: {
+    overflow: "hidden",
+    justifyContent: "flex-start",
+    alignItems: "center"
+  },
+  downText: {
+    paddingTop: 0,
+    height: 30,
+    fontSize: 16,
+    color: "#000",
+    opacity: 0.5,
+    paddingBottom: 0,
+    marginTop: 0,
+    marginBottom: 0
+  }
 });
